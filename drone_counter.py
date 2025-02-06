@@ -25,8 +25,29 @@ total_count = 0
 current_in_zone = 0
 last_update = time.time()
 
-# Caricamento modello YOLOv8
+# Modifica la logica di rilevamento dispositivo
+def get_device():
+    print("Verificando disponibilità CUDA...")
+    print(f"PyTorch version: {torch.__version__}")
+    if torch.cuda.is_available():
+        cuda_id = 0  # o specifica l'ID della GPU se ne hai multiple
+        torch.cuda.set_device(cuda_id)
+        print(f"Usando GPU: {torch.cuda.get_device_name(cuda_id)}")
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
+        return f'cuda:{cuda_id}'
+    else:
+        print("CUDA non disponibile, usando CPU")
+        return 'cpu'
+
+# Inizializzazione modello
+device = get_device()
 model = YOLO('yolov8n.pt', task='detect', verbose=False)
+model.to(device)
+half = device.startswith('cuda')
+
+if device.startswith('cuda'):
+    torch.cuda.empty_cache()  # Pulisci la memoria GPU
 
 # Modifica la configurazione del tracker
 TRACKER_CONFIG = {
@@ -54,18 +75,6 @@ logging.basicConfig(
         logging.FileHandler('system.log')
     ]
 )
-
-# Modifica la logica di rilevamento dispositivo
-def get_device():
-    if torch.backends.mps.is_available():
-        return 'mps'
-    elif torch.cuda.is_available():
-        return 'cuda'
-    else:
-        return 'cpu'
-
-device = get_device()
-half = device in ('cuda', 'mps')
 
 class VideoProcessor:
     def __init__(self, stream_url):
@@ -193,7 +202,7 @@ class VideoProcessor:
                         classes=[0],
                         conf=0.6,
                         iou=0.5,
-                        imgsz=640,
+                        imgsz=480,  # Ridotto per maggiore velocità
                         device=device,
                         half=half,
                         verbose=False
@@ -365,6 +374,12 @@ def reset_count():
     return jsonify({'status': 'reset'})
 
 if __name__ == '__main__':
+    # Aggiungi questo prima di iniziare
+    print(f"Device utilizzato: {device}")
+    print(f"CUDA disponibile: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"GPU in uso: {torch.cuda.get_device_name(0)}")
+        print(f"Half precision: {half}")
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', type=str, default="0", 
                        help='Indice webcam (0,1..) o URL stream (rtsp://..., rtmp://...)')
