@@ -38,14 +38,29 @@ python3 -m venv drone_env
 
 Esempio completo per Windows:
 # Windows (Prompt dei comandi)
-myenv\Scripts\activate.bat
+:: Crea ambiente
+python -m venv drone_env
 
-# Windows (PowerShell)
-myenv\Scripts\Activate.ps1
+:: Attiva
+drone_env\Scripts\activate.bat
 
+:: Installa pacchetti
+pip install -r requirements.txt
+
+:: Disattiva
+deactivate
 # Linux/MacOS
-source myenv/bin/activate
+# Crea ambiente
+python3 -m venv drone_env
 
+# Attiva
+source drone_env/bin/activate
+
+# Installa pacchetti
+pip install -r requirements.txt
+
+# Disattiva
+deactivate
 pip install -r requirements.txt
 
 ## ⚡ Configurazione rapida
@@ -70,6 +85,10 @@ python drone_counter.py --url 0
 Per stream RTSP
 bash
 python drone_counter.py --url "rtsp://username:password@ip:port/stream"
+esempio con webcam : 
+python drone_counter.py --url "rtsp://admin:PASSSS@10.0.0.14:554/Streaming/Channels/101"
+
+
 :
 bash
 http://localhost:5001
