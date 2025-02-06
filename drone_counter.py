@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from collections import deque
 import torch
 import yaml
+import os
 
 app = Flask(__name__)
 lock = Lock()
@@ -100,62 +101,48 @@ class VideoProcessor:
         self.max_id_seen = 0  # Aggiungi questa linea
         self.active_connections = 0
         self.stream_lock = Lock()
-
+        
+        # Aggiungi queste configurazioni per ottimizzare lo stream
+        self.frame_skip = 2  # Processa 1 frame ogni N frame
+        self.frame_count = 0
+        self.buffer_size = 1  # Riduce il buffer delle immagini
+        self.max_width = 640  # Limita la dimensione massima del frame
+        
+        # Ottimizza le proprietà della cattura video
+        if not self.stream_url.isdigit():
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, self.buffer_size)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)  # Limita FPS
+            
     def _init_capture(self):
         if self.cap and self.cap.isOpened():
             self.cap.release()
-            time.sleep(0.5)  # Aggiungi un piccolo delay per il rilascio
+            time.sleep(0.5)
         
         self.cap = cv2.VideoCapture()
         
         if self.stream_url.isdigit():
-            # Configurazione webcam
             self.cap.open(int(self.stream_url))
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         else:
-            # Configurazione stream RTSP/RTMP
-            if not self.stream_url.startswith('rtsp://'):
-                self.stream_url = f"rtsp://{self.stream_url}"
+            # Ottimizza parametri RTSP
+            os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;tcp'
             
-            # Costruisci correttamente i parametri di connessione
-            base_url = self.stream_url.split('?')[0]
+            # Configura parametri ottimizzati per lo streaming
             params = {
-                'rtsp_transport': 'tcp',  # Più affidabile di UDP
-                'buffer_size': '1024',
-                'timeout': '5000000',
-                'analyzeduration': '1000000',
-                'probesize': '1000000'
+                'rtsp_transport': 'tcp',
+                'buffer_size': '512',  # Ridotto il buffer
+                'max_delay': '500000',  # 0.5 secondi max delay
+                'fflags': 'nobuffer',   # Disabilita buffering
+                'flags': 'low_delay',   # Modalità bassa latenza
+                'strict': 'experimental'
             }
             
             query = '&'.join([f"{k}={v}" for k, v in params.items()])
-            self.stream_url = f"{base_url}?{query}"
+            stream_url = f"{self.stream_url}?{query}"
             
-            # Configurazione ottimizzata
-            self.cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
-            self.cap.open(self.stream_url, cv2.CAP_FFMPEG)
+            self.cap.open(stream_url, cv2.CAP_FFMPEG)
         
         if not self.cap.isOpened():
-            logging.error(f"Connessione fallita a: {self.stream_url}")
-            raise ValueError(f"Impossibile aprire il dispositivo: {self.stream_url}")
-        else:
-            logging.info(f"Connessione riuscita a: {self.stream_url}")
-        
-        self.detection_zone = []
-        self.current_hour_max = 0
-        self.current_hour_str = datetime.now().strftime("%H:00")
-        self.hourly_counts = deque(maxlen=24)
-        self._init_hourly_data()
-        self.tracked_ids = {}
-        self.cooldown = 5  # Secondi tra conteggi per lo stesso ID
-        self.min_confidence = 0.6  # Soglia minima di confidenza
-        self.last_positions = {}
-        self.movement_threshold = 20  # Pixel minimi per considerare un movimento valido
-        self.ENTRY_DIRECTION = 'top'  # 'top', 'bottom' o 'any'
-        self.ENTRY_THRESHOLD = 0.25  # 25% del frame
-        self.dead_ids_history = {}  # Tiene traccia degli ID rimossi e loro ultima posizione
-        self.reid_threshold = 50    # Distanza massima in pixel per il re-identification
-        self.max_id_seen = 0  # Aggiungi questa linea
+            raise ValueError(f"Impossibile aprire: {self.stream_url}")
 
     def _init_hourly_data(self):
         now = datetime.now()
@@ -183,16 +170,24 @@ class VideoProcessor:
                 current_confidences = {}
 
                 while True:
+                    # Skip frames per ridurre carico
+                    self.frame_count += 1
+                    if self.frame_count % self.frame_skip != 0:
+                        ret = self.cap.grab()  # Solo grab senza decode
+                        continue
+                    
                     ret, frame = self.cap.read()
                     if not ret:
                         logging.warning("Frame non ricevuto")
-                        self._init_capture()  # Reinizializza la connessione
-                        ret, frame = self.cap.read()  # Ritenta una volta
-                        if not ret:
-                            logging.error("Impossibile ripristinare lo stream")
-                            return
+                        self._init_capture()
+                        continue
 
+                    # Ridimensiona se necessario
                     height, width = frame.shape[:2]
+                    if width > self.max_width:
+                        scale = self.max_width / width
+                        frame = cv2.resize(frame, (self.max_width, int(height * scale)))
+
                     self.detection_zone = [(0, 0), (width, 0), (width, height), (0, height)]
 
                     results = model.track(
@@ -202,7 +197,7 @@ class VideoProcessor:
                         classes=[0],
                         conf=0.6,
                         iou=0.5,
-                        imgsz=480,  # Ridotto per maggiore velocità
+                        imgsz=480,  # Ridotto ulteriormente
                         device=device,
                         half=half,
                         verbose=False
@@ -328,10 +323,20 @@ class VideoProcessor:
                             entry['max_id'] = max(entry['max_id'], self.current_hour_max)
                             break
 
-                    ret, jpeg = cv2.imencode('.jpg', cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    # Ottimizza encoding JPEG
+                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]  # Qualità ridotta
+                    ret, jpeg = cv2.imencode('.jpg', frame, encode_param)
+                    
+                    if not ret:
+                        continue
+                        
                     frame_bytes = jpeg.tobytes()
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n\r\n')
+                    
+                    # Aggiungi un piccolo delay per evitare sovraccarico
+                    time.sleep(0.001)
+                    
             finally:
                 self.active_connections -= 1
                 if self.active_connections == 0:
