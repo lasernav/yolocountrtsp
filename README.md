@@ -36,14 +36,29 @@ deactivate
 
 Esempio completo per Windows:
 # Windows (Prompt dei comandi)
-myenv\Scripts\activate.bat
+:: Crea ambiente
+python -m venv drone_env
 
-# Windows (PowerShell)
-myenv\Scripts\Activate.ps1
+:: Attiva
+drone_env\Scripts\activate.bat
 
+:: Installa pacchetti
+pip install -r requirements.txt
+
+:: Disattiva
+deactivate
 # Linux/MacOS
-source myenv/bin/activate
+# Crea ambiente
+python3 -m venv drone_env
 
+# Attiva
+source drone_env/bin/activate
+
+# Installa pacchetti
+pip install -r requirements.txt
+
+# Disattiva
+deactivate
 pip install -r requirements.txt
 
 ## ⚡ Configurazione rapida
