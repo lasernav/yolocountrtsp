@@ -83,6 +83,10 @@ python drone_counter.py --url 0
 Per stream RTSP
 bash
 python drone_counter.py --url "rtsp://username:password@ip:port/stream"
+esempio con webcam : 
+python drone_counter.py --url "rtsp://admin:PASSSS@10.0.0.14:554/Streaming/Channels/101"
+
+
 :
 bash
 http://localhost:5001
