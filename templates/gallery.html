@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Airship AlixBlimp - Photo Gallery</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: #0A0A2E;
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            padding: 20px;
+        }
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+        .gallery-item {
+            position: relative;
+            border-radius: 10px;
+            overflow: hidden;
+            transition: transform 0.3s;
+        }
+        .gallery-item:hover {
+            transform: scale(1.05);
+        }
+        .gallery-item img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border: 2px solid #0B3D91;
+        }
+        .timestamp {
+            position: absolute;
+            bottom: 0;
+            background: rgba(11, 61, 145, 0.8);
+            width: 100%;
+            padding: 10px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛸 Snapshot Gallery</h1>
+    <div class="gallery-grid">
+        {% for snapshot in snapshots %}
+        <div class="gallery-item">
+            <img src="{{ url_for('static', filename=snapshot) }}">
+            <div class="timestamp">
+                {{ snapshot.split('_')[1].split('.')[0]|replace('-', ':') }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html> 

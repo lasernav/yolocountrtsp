@@ -1,0 +1,8 @@
+*.log
+*.pyc
+__pycache__/
+venv/
+*.weights
+*.pt
+*.mp4
+*.avi
