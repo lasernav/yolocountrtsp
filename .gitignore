@@ -1,7 +1,27 @@
+# Virtual environment
+drone_env/
+myenv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment variables
+.env
+
 *.log
 *.pyc
-__pycache__/
-venv/
 *.weights
 *.pt
 *.mp4

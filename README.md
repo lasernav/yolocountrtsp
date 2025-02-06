@@ -33,6 +33,8 @@ myenv
 activate
 3. Disattivazione ambiente:
 deactivate
+# Creazione ambiente virtuale:
+python3 -m venv drone_env
 
 Esempio completo per Windows:
 # Windows (Prompt dei comandi)
