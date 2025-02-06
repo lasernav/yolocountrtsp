@@ -27,7 +27,23 @@ cd drone-counter
 
 
 3. Installa dipendenze:
-bash
+1. Creazione ambiente virtuale:
+myenv
+2. Attivazione ambiente:
+activate
+3. Disattivazione ambiente:
+deactivate
+
+Esempio completo per Windows:
+# Windows (Prompt dei comandi)
+myenv\Scripts\activate.bat
+
+# Windows (PowerShell)
+myenv\Scripts\Activate.ps1
+
+# Linux/MacOS
+source myenv/bin/activate
+
 pip install -r requirements.txt
 
 ## ⚡ Configurazione rapida
