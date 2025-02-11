@@ -18,6 +18,8 @@ import torch
 import yaml
 import os
 import requests
+import base64
+from io import BytesIO
 
 app = Flask(__name__)
 lock = Lock()
@@ -26,6 +28,15 @@ lock = Lock()
 total_count = 0
 current_in_zone = 0
 last_update = time.time()
+
+# Configurazione delle variabili d'ambiente con valori di default
+ENABLE_COUNTER_UPDATES = os.getenv('ENABLE_COUNTER_UPDATES', 'true').lower() == 'true'
+ENABLE_IMAGE_UPDATES = os.getenv('ENABLE_IMAGE_UPDATES', 'true').lower() == 'true'
+
+# Debug iniziale delle configurazioni
+print("\n=== Configurazione aggiornamenti ===")
+print(f"Aggiornamenti contatore: {'ATTIVI' if ENABLE_COUNTER_UPDATES else 'DISATTIVI'}")
+print(f"Aggiornamenti immagini: {'ATTIVI' if ENABLE_IMAGE_UPDATES else 'DISATTIVI'}")
 
 # Modifica la logica di rilevamento dispositivo
 def get_device():
@@ -118,6 +129,18 @@ class VideoProcessor:
         self.last_api_update = time.time()
         self.api_update_interval = 1.0  # Intervallo minimo tra gli aggiornamenti API (1 secondo)
         
+        # Aggiungi queste variabili per gestire il salvataggio immagini
+        self.last_image_time = time.time()
+        self.image_interval = 300  # 5 minuti in secondi
+        self.image_api_url = "https://xovery.cim40.com/api/v1/people-counter/image/"
+        
+        # Aggiungi le configurazioni degli aggiornamenti
+        self.enable_counter_updates = ENABLE_COUNTER_UPDATES
+        self.enable_image_updates = ENABLE_IMAGE_UPDATES
+        
+        self.last_history_update = time.time()
+        self.history_update_interval = 60  # Aggiorna lo storico ogni minuto
+        
     def _init_capture(self):
         if self.cap and self.cap.isOpened():
             self.cap.release()
@@ -159,6 +182,10 @@ class VideoProcessor:
             })
 
     def send_counter_update(self, total_count, current_in_zone):
+        # Verifica se gli aggiornamenti sono attivi
+        if not self.enable_counter_updates:
+            return
+            
         current_time = time.time()
         
         # Debug pre-invio
@@ -213,6 +240,115 @@ class VideoProcessor:
             print(f"\n=== DEBUG: ERRORE ===\n{error_msg}")
             print(f"Tipo errore: {type(e).__name__}")
             print(f"Dettagli: {str(e)}")
+
+    def send_image_update(self, frame):
+        # Verifica se gli aggiornamenti sono attivi
+        if not self.enable_image_updates:
+            return
+            
+        current_time = time.time()
+        
+        # Verifica se sono passati 5 minuti dall'ultimo tentativo (successo o fallimento)
+        if current_time - self.last_image_time < self.image_interval:
+            return
+            
+        try:
+            print("\n=== DEBUG: Preparazione invio immagine ===")
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            
+            # Converti l'immagine in base64
+            _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            img_base64 = base64.b64encode(buffer).decode('utf-8')
+            
+            # Prepara i dati per il POST
+            data = {
+                'timestamp': timestamp,
+                'image': img_base64
+            }
+            
+            print(f"Timestamp immagine: {timestamp}")
+            print(f"Dimensione immagine codificata: {len(img_base64)} bytes")
+            
+            # Gestione tentativi
+            max_retries = 3
+            retry_count = 0
+            success = False
+            
+            while retry_count < max_retries and not success:
+                try:
+                    print(f"\nTentativo invio immagine {retry_count + 1}/{max_retries}...")
+                    response = requests.post(self.image_api_url, json=data, timeout=10)
+                    
+                    # Debug risposta
+                    print(f"Status code: {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        print("DEBUG: Invio immagine completato con successo")
+                        success = True
+                    else:
+                        print(f"DEBUG: Errore invio immagine - Status {response.status_code}")
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            print(f"Attendo 2 secondi prima del prossimo tentativo...")
+                            time.sleep(2)
+                            
+                except Exception as e:
+                    print(f"Errore durante il tentativo {retry_count + 1}: {str(e)}")
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        print(f"Attendo 2 secondi prima del prossimo tentativo...")
+                        time.sleep(2)
+            
+            # Aggiorna il timestamp dell'ultimo tentativo, sia in caso di successo che fallimento
+            self.last_image_time = current_time
+            
+            if not success:
+                print(f"Fallito invio immagine dopo {max_retries} tentativi. Prossimo tentativo tra 5 minuti.")
+                
+        except Exception as e:
+            error_msg = f"Errore durante la preparazione dell'immagine: {str(e)}"
+            logging.error(error_msg)
+            print(f"\n=== DEBUG: ERRORE PREPARAZIONE IMMAGINE ===\n{error_msg}")
+            print(f"Tipo errore: {type(e).__name__}")
+            print(f"Dettagli: {str(e)}")
+            # Aggiorna il timestamp anche in caso di errore di preparazione
+            self.last_image_time = current_time
+
+    def update_history(self, valid_ids, current_time):
+        """Aggiorna lo storico dei conteggi ogni minuto"""
+        if current_time - self.last_history_update < self.history_update_interval:
+            return
+            
+        try:
+            current_hour = datetime.now().strftime("%H:00")
+            
+            # Aggiorna il massimo dell'ora corrente
+            if valid_ids:
+                current_max = max(valid_ids)
+                if current_max > self.current_hour_max:
+                    self.current_hour_max = current_max
+                    
+            # Controllo cambio ora
+            if current_hour != self.current_hour_str:
+                # Trova e aggiorna l'entry nell'ora precedente
+                for entry in self.hourly_counts:
+                    if entry['hour'] == self.current_hour_str:
+                        entry['max_id'] = max(entry['max_id'], self.current_hour_max)
+                        break
+                self.current_hour_str = current_hour
+                self.current_hour_max = 0
+
+            # Aggiorna in tempo reale l'entry corrente
+            for entry in self.hourly_counts:
+                if entry['hour'] == self.current_hour_str:
+                    entry['max_id'] = max(entry['max_id'], self.current_hour_max)
+                    break
+                    
+            self.last_history_update = current_time
+            logging.info(f"Storico aggiornato: ora corrente {current_hour}, max ID {self.current_hour_max}")
+            
+        except Exception as e:
+            logging.error(f"Errore nell'aggiornamento dello storico: {str(e)}")
 
     def process_stream(self):
         with self.stream_lock:
@@ -341,6 +477,9 @@ class VideoProcessor:
                                 current_in_zone = len(valid_ids)
                                 last_update = current_time
 
+                                # Aggiorna lo storico ogni minuto
+                                self.update_history(valid_ids, current_time)
+
                                 # Pulizia degli ID non più presenti
                                 dead_ids = set(self.tracked_ids.keys()) - valid_ids
                                 for id in dead_ids:
@@ -387,8 +526,11 @@ class VideoProcessor:
                             entry['max_id'] = max(entry['max_id'], self.current_hour_max)
                             break
 
-                    # Ottimizza encoding JPEG
-                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]  # Qualità ridotta
+                    # Invia l'immagine se necessario
+                    self.send_image_update(frame)
+                    
+                    # Continua con l'encoding JPEG esistente
+                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
                     ret, jpeg = cv2.imencode('.jpg', frame, encode_param)
                     
                     if not ret:

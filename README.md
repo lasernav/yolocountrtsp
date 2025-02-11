@@ -88,6 +88,32 @@ python drone_counter.py --url "rtsp://username:password@ip:port/stream"
 esempio con webcam : 
 python drone_counter.py --url "rtsp://admin:PASSSS@10.0.0.14:554/Streaming/Channels/101"
 
+Per utilizzare queste configurazioni, puoi:
+Disattivare gli aggiornamenti del contatore:
+export ENABLE_COUNTER_UPDATES=false
+python drone_counter.py --url "rtsp://..."
+
+Disattivare gli aggiornamenti delle immagini:
+Disattivare entrambi:
+
+export ENABLE_COUNTER_UPDATES=false
+export ENABLE_IMAGE_UPDATES=false
+python drone_counter.py --url "rtsp://..."
+
+4. Usare i valori di default (entrambi attivi):
+python drone_counter.py --url "rtsp://..."
+
+Le variabili d'ambiente possono essere:
+true/false (case insensitive)
+Se non impostate, default a true
+Il programma mostrerà lo stato delle configurazioni all'avvio
+
+per usare le camere del pc o di obs o camera esterna: 
+
+python drone_counter.py --url 0,1,2  
+0 camera interna
+1 camera obs
+2 camera esterna
 
 :
 bash
