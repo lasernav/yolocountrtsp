@@ -12,11 +12,12 @@ import pafy
 import yt_dlp
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import deque
 import torch
 import yaml
 import os
+import requests
 
 app = Flask(__name__)
 lock = Lock()
@@ -113,6 +114,10 @@ class VideoProcessor:
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, self.buffer_size)
             self.cap.set(cv2.CAP_PROP_FPS, 30)  # Limita FPS
             
+        self.api_url = "https://xovery.cim40.com/api/v1/people-counter/"
+        self.last_api_update = time.time()
+        self.api_update_interval = 1.0  # Intervallo minimo tra gli aggiornamenti API (1 secondo)
+        
     def _init_capture(self):
         if self.cap and self.cap.isOpened():
             self.cap.release()
@@ -152,6 +157,62 @@ class VideoProcessor:
                 'hour': (now - timedelta(hours=i)).strftime("%H:00"),
                 'max_id': 0
             })
+
+    def send_counter_update(self, total_count, current_in_zone):
+        current_time = time.time()
+        
+        # Debug pre-invio
+        print("\n=== DEBUG: Preparazione invio POST ===")
+        print(f"Tempo corrente: {current_time}")
+        print(f"Ultimo aggiornamento: {self.last_api_update}")
+        print(f"Intervallo trascorso: {current_time - self.last_api_update}s")
+        
+        # Limita la frequenza degli aggiornamenti
+        if current_time - self.last_api_update < self.api_update_interval:
+            print("DEBUG: Skipping - Aggiornamento troppo frequente")
+            return
+            
+        try:
+            # Genera timestamp in formato ISO 8601 con timezone
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            
+            # Costruisci l'URL con i parametri
+            params = {
+                'timestamp': timestamp,
+                'total_count': total_count,
+                'in_zone': current_in_zone
+            }
+            
+            # Debug pre-richiesta
+            print("\n=== DEBUG: Dettagli richiesta ===")
+            print(f"URL: {self.api_url}")
+            print(f"Parametri: {params}")
+            
+            # Invia la richiesta GET con i parametri
+            print("\nInvio richiesta...")
+            response = requests.post(self.api_url, params=params)
+            
+            # Debug risposta
+            print("\n=== DEBUG: Risposta ===")
+            print(f"Status code: {response.status_code}")
+            print(f"Headers: {dict(response.headers)}")
+            print(f"Contenuto: {response.text[:200]}...")  # Primi 200 caratteri
+            
+            if response.status_code == 200:
+                logging.info(f"Aggiornamento API inviato: {params}")
+                print("DEBUG: Invio completato con successo")
+            else:
+                logging.warning(f"Errore invio API: {response.status_code}")
+                print(f"DEBUG: Errore invio - Status {response.status_code}")
+                
+            self.last_api_update = current_time
+            
+        except Exception as e:
+            error_msg = f"Errore durante l'invio dell'aggiornamento API: {str(e)}"
+            logging.error(error_msg)
+            print(f"\n=== DEBUG: ERRORE ===\n{error_msg}")
+            print(f"Tipo errore: {type(e).__name__}")
+            print(f"Dettagli: {str(e)}")
 
     def process_stream(self):
         with self.stream_lock:
@@ -295,6 +356,9 @@ class VideoProcessor:
                                 # Pulisci la history vecchia
                                 self.dead_ids_history = {k:v for k,v in self.dead_ids_history.items() 
                                                         if (current_time - v[0]) < self.cooldown}
+
+                                # Invia l'aggiornamento all'API
+                                self.send_counter_update(total_count, current_in_zone)
 
                     cv2.polylines(frame, [np.array(self.detection_zone)], True, (0,255,0), 2)
                     
